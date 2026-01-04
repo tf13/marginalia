@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Marginalia</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 { margin-bottom: 0.5em; }
+        .subtitle { color: #666; margin-top: 0; }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 1.1em;
+        }
+
+        .storage-toggle {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .storage-btn {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .storage-btn:hover {
+            border-color: #007bff;
+        }
+        .storage-btn.active {
+            border-color: #007bff;
+            background: #e7f1ff;
+        }
+        .storage-btn .label {
+            font-weight: 600;
+            display: block;
+        }
+        .storage-btn .desc {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #fff3cd; color: #856404; }
+
+        .bookmarklet {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 5px 5px 5px 0;
+            font-size: 14px;
+        }
+        .bookmarklet:hover { background: #5a6268; }
+
+        code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        #rs-widget { margin: 15px 0; }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Marginalia</h1>
+    <p class="subtitle">Persistent zero-data web annotation</p>
+
+    <div class="section">
+        <h2>Storage Backend</h2>
+        <p>Choose where to save your annotations:</p>
+
+        <div class="storage-toggle">
+            <button class="storage-btn" id="btn-local" onclick="setStorage('local')">
+                <span class="label">localStorage</span>
+                <span class="desc">Browser only, no sync</span>
+            </button>
+            <button class="storage-btn" id="btn-remote" onclick="setStorage('remote')">
+                <span class="label">remoteStorage</span>
+                <span class="desc">Sync across devices</span>
+            </button>
+        </div>
+
+        <div id="rs-section" class="hidden">
+            <div id="rs-status" class="status disconnected">
+                remoteStorage: Not connected
+            </div>
+            <div id="rs-widget"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Bookmarklets</h2>
+        <p>Drag these to your bookmarks bar:</p>
+
+        <a class="bookmarklet" id="bookmarklet-set" href="#">Set Annotation</a>
+        <a class="bookmarklet" id="bookmarklet-load" href="#">Load Annotations</a>
+
+        <p style="margin-top: 15px; font-size: 14px; color: #666;">
+            <strong>Usage:</strong> Select text on any page, click "Set Annotation" to highlight and save.
+            Click "Load Annotations" to restore saved highlights.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>How It Works</h2>
+        <ul>
+            <li>Annotations are saved per-URL</li>
+            <li>First run prompts for storage choice (can remember preference)</li>
+            <li>Enter <code>c</code> in the prompt to change storage preference</li>
+            <li>Gracefully falls back to localStorage if remoteStorage fails</li>
+        </ul>
+    </div>
+
+    <script src="https://unpkg.com/remotestoragejs@latest/release/remotestorage.js"></script>
+    <script src="https://unpkg.com/remotestorage-widget@latest/build/widget.js"></script>
+    <script>
+        const STORAGE_PREF_KEY = 'marginalia_storage';
+
+        // Initialize remoteStorage
+        const remoteStorage = new RemoteStorage({ logging: false });
+        remoteStorage.access.claim('marginalia', 'rw');
+        remoteStorage.caching.enable('/marginalia/');
+
+        // Widget for RS connection
+        const widget = new Widget(remoteStorage);
+
+        // Update UI based on current storage preference
+        function updateUI() {
+            const pref = localStorage.getItem(STORAGE_PREF_KEY) || 'local';
+
+            document.getElementById('btn-local').classList.toggle('active', pref === 'local');
+            document.getElementById('btn-remote').classList.toggle('active', pref === 'remote');
+
+            const rsSection = document.getElementById('rs-section');
+            rsSection.classList.toggle('hidden', pref !== 'remote');
+
+            if (pref === 'remote') {
+                updateRsStatus();
+            }
+        }
+
+        // Update remoteStorage connection status
+        function updateRsStatus() {
+            const statusEl = document.getElementById('rs-status');
+            if (remoteStorage.remote.connected) {
+                statusEl.className = 'status connected';
+                statusEl.textContent = 'remoteStorage: Connected to ' + remoteStorage.remote.userAddress;
+            } else {
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = 'remoteStorage: Not connected - use widget below to connect';
+            }
+        }
+
+        // Set storage preference
+        function setStorage(type) {
+            localStorage.setItem(STORAGE_PREF_KEY, type);
+            updateUI();
+
+            if (type === 'remote') {
+                widget.attach('rs-widget');
+            }
+        }
+
+        // Generate bookmarklet code
+        function generateBookmarklet(code) {
+            return 'javascript:' + encodeURIComponent('(function(){' + code + '})()');
+        }
+
+        // Set up bookmarklets (load external JS files)
+        async function setupBookmarklets() {
+            try {
+                // For simplicity, we'll create minimal inline bookmarklets that load the full scripts
+                // In production, you'd minify and inline the full scripts
+
+                const setCode = `
+var s=document.createElement('script');
+s.src='${window.location.origin}/static/setAnnotation.js';
+document.body.appendChild(s);
+`;
+
+                const loadCode = `
+var s=document.createElement('script');
+s.src='${window.location.origin}/static/loadAnnotations.js';
+document.body.appendChild(s);
+`;
+
+                // For now, use a simpler approach - alert with instructions
+                document.getElementById('bookmarklet-set').href =
+                    'javascript:alert("Copy the setAnnotation.js code and create a bookmarklet manually, or host the JS files and update this page.");';
+                document.getElementById('bookmarklet-load').href =
+                    'javascript:alert("Copy the loadAnnotations.js code and create a bookmarklet manually, or host the JS files and update this page.");';
+
+            } catch (e) {
+                console.error('Error setting up bookmarklets:', e);
+            }
+        }
+
+        // Listen for RS connection changes
+        remoteStorage.on('connected', updateRsStatus);
+        remoteStorage.on('disconnected', updateRsStatus);
+
+        // Initialize
+        updateUI();
+        setupBookmarklets();
+
+        // Show widget if remote is selected
+        if (localStorage.getItem(STORAGE_PREF_KEY) === 'remote') {
+            widget.attach('rs-widget');
+        }
+    </script>
+</body>
+</html>
